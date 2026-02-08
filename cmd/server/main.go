@@ -13,8 +13,10 @@ func main() {
 	r := router.New()
 	commands.Register(r, s)
 	server := connection.TCPServer{
-		Handler: r.Handle,
+		Handler:  r.Handle,
+		CertFile: "cert.pem",
+		KeyFile:  "key.pem",
 	}
-	log.Println("Server listening on :8080")
+	log.Println("Server listening on :8080 (TLS)")
 	server.Setup(":8080")
 }

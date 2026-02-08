@@ -1,6 +1,6 @@
 # Redis Implementation with Go
 
-A lightweight Redis-like in-memory key-value store built from scratch in Go using raw TCP sockets.
+A lightweight Redis-like in-memory key-value store built from scratch in Go with TLS-encrypted TCP connections.
 
 ## Architecture
 
@@ -33,12 +33,12 @@ redis-go/
 | `internal/router` | Maps command names to handler functions. Parses incoming messages. |
 | `internal/commands` | Defines Redis command handlers (PING, GET, SET, DELETE, SET_WITH_TTL). Receives store via dependency injection. |
 | `internal/store` | Thread-safe key-value store with `sync.RWMutex`, TTL support, and background cleanup. |
-| `pkg/connection` | TCP listener that accepts connections and delegates messages to a handler. |
+| `pkg/connection` | TCP/TLS listener that accepts connections and delegates messages to a handler. |
 
 ### Request Flow
 
 ```
-Client (TCP) → TCPServer → Router.Handle → CommandHandler → Store → Response
+Client (TLS/TCP) → TCPServer → Router.Handle → CommandHandler → Store → Response
 ```
 
 1. Client sends a text command over TCP (e.g. `SET name redis\n`)
@@ -72,6 +72,15 @@ commands.Register(r, s)   // Register commands with store injected
 ### Prerequisites
 
 - Go 1.21+
+- OpenSSL (for generating TLS certificates)
+
+### Generate TLS Certificates
+
+```bash
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
+```
+
+This creates `cert.pem` and `key.pem` in the project root.
 
 ### Run the Server
 
@@ -79,14 +88,14 @@ commands.Register(r, s)   // Register commands with store injected
 go run ./cmd/server
 ```
 
-Server starts listening on port `8080`.
+Server starts listening on port `8080` with TLS. To run without TLS, remove `CertFile` and `KeyFile` from `main.go`.
 
 ### Connect with a Client
 
-Using `nc` (netcat):
+Using `openssl s_client` (TLS):
 
 ```bash
-nc localhost 8080
+openssl s_client -connect localhost:8080 -quiet
 ```
 
 Example session:
@@ -108,12 +117,6 @@ GET name
 (nil)
 DELETE nonexistent
 false
-```
-
-Using `telnet`:
-
-```bash
-telnet localhost 8080
 ```
 
 ### Build
@@ -142,3 +145,21 @@ The store uses `sync.RWMutex` for thread safety:
 Each client connection runs in its own goroutine, so multiple clients can connect and send commands concurrently.
 
 The background cleanup goroutine is started automatically with `store.New()` and can be stopped gracefully with `store.Close()`.
+
+## TLS
+
+The server supports TLS encryption out of the box. When `CertFile` and `KeyFile` are set on `TCPServer`, it uses `tls.Listen` instead of `net.Listen`. If both fields are empty, the server falls back to plain TCP.
+
+```go
+// TLS enabled
+server := connection.TCPServer{
+    Handler:  r.Handle,
+    CertFile: "cert.pem",
+    KeyFile:  "key.pem",
+}
+
+// Plain TCP (no TLS)
+server := connection.TCPServer{
+    Handler: r.Handle,
+}
+```

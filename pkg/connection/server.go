@@ -2,6 +2,7 @@ package connection
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -17,11 +18,26 @@ type Server interface {
 type MessageHandler func(msg string) (string, error)
 
 type TCPServer struct {
-	Handler MessageHandler
+	Handler  MessageHandler
+	CertFile string
+	KeyFile  string
 }
 
 func (s TCPServer) Setup(port string) {
-	listener, err := net.Listen("tcp", port)
+	var listener net.Listener
+	var err error
+
+	if s.CertFile != "" && s.KeyFile != "" {
+		cert, certErr := tls.LoadX509KeyPair(s.CertFile, s.KeyFile)
+		if certErr != nil {
+			log.Fatal("Error loading TLS cert:", certErr)
+		}
+		config := &tls.Config{Certificates: []tls.Certificate{cert}}
+		listener, err = tls.Listen("tcp", port, config)
+	} else {
+		listener, err = net.Listen("tcp", port)
+	}
+
 	if err != nil {
 		log.Fatal("Error listening:", err)
 	}
