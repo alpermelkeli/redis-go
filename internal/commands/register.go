@@ -2,6 +2,7 @@ package commands
 
 import (
 	"errors"
+	"fmt"
 	"redis-go/internal/router"
 	"redis-go/internal/store"
 	"strconv"
@@ -25,6 +26,18 @@ func Register(r *router.Router, s *store.Store) {
 		}
 
 		return val, nil
+	})
+
+	r.Register("SET_WITH_TTL", func(args []string) (string, error) {
+		if len(args) != 3 {
+			return "", errors.New(ARGUMENT_ERROR + "SET_WITH_TTL")
+		}
+		ttl, err := strconv.ParseInt(args[2], 10, 64)
+		if err != nil {
+			return "", errors.New("Cannot convert int: " + args[2])
+		}
+		s.SetWithTTL(args[0], args[1], ttl)
+		return fmt.Sprintf("OK (TTL: %s)", args[2]), nil
 	})
 
 	r.Register("SET", func(args []string) (string, error) {
