@@ -26,3 +26,11 @@ func (s *Store) Get(key string) (string, bool) {
 	v, ok := s.data[key]
 	return v, ok
 }
+
+func (s *Store) Delete(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.data[key]
+	delete(s.data, key)
+	return ok
+}
