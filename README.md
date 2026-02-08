@@ -31,8 +31,8 @@ redis-go/
 |---------|------|
 | `cmd/server` | Application entry point. Creates dependencies and wires them together. |
 | `internal/router` | Maps command names to handler functions. Parses incoming messages. |
-| `internal/commands` | Defines Redis command handlers (PING, GET, SET). Receives store via dependency injection. |
-| `internal/store` | Thread-safe `map[string]string` with `sync.RWMutex` for concurrent access. |
+| `internal/commands` | Defines Redis command handlers (PING, GET, SET, DELETE, SET_WITH_TTL). Receives store via dependency injection. |
+| `internal/store` | Thread-safe key-value store with `sync.RWMutex`, TTL support, and background cleanup. |
 | `pkg/connection` | TCP listener that accepts connections and delegates messages to a handler. |
 
 ### Request Flow
@@ -62,8 +62,10 @@ commands.Register(r, s)   // Register commands with store injected
 | Command | Usage | Description |
 |---------|-------|-------------|
 | `PING` | `PING` | Returns `PONG`. Used for health checks. |
-| `GET` | `GET <key>` | Returns the value for the given key, or `(nil)` if not found. |
-| `SET` | `SET <key> <value>` | Stores the key-value pair. Returns `OK`. |
+| `GET` | `GET <key>` | Returns the value for the given key, or `(nil)` if not found. Expired keys return `(nil)`. |
+| `SET` | `SET <key> <value>` | Stores the key-value pair without expiration. Returns `OK`. |
+| `SET_WITH_TTL` | `SET_WITH_TTL <key> <value> <seconds>` | Stores the key-value pair with a TTL in seconds. Returns `OK (TTL: <seconds>)`. |
+| `DELETE` | `DELETE <key>` | Deletes the given key. Returns `true` if key existed, `false` otherwise. |
 
 ## Getting Started
 
@@ -96,8 +98,16 @@ SET name redis
 OK
 GET name
 redis
-GET nonexistent
+SET_WITH_TTL session abc123 60
+OK (TTL: 60)
+GET session
+abc123
+DELETE name
+true
+GET name
 (nil)
+DELETE nonexistent
+false
 ```
 
 Using `telnet`:
@@ -113,11 +123,22 @@ go build -o redis-server ./cmd/server
 ./redis-server
 ```
 
+## TTL and Key Expiration
+
+Keys can be set with a Time-To-Live (TTL) using `SET_WITH_TTL`. Expiration is handled in two layers:
+
+- **Lazy check:** `GET` checks if a key is expired before returning. Expired keys return `(nil)` without blocking other readers.
+- **Active cleanup:** A background goroutine runs every second, scanning the store and removing expired keys with a write lock.
+
+This dual approach keeps read performance high (`RLock`) while preventing memory leaks from unaccessed expired keys.
+
 ## Concurrency
 
 The store uses `sync.RWMutex` for thread safety:
 
 - **Read operations** (`GET`) use `RLock` - multiple readers can access simultaneously
-- **Write operations** (`SET`) use `Lock` - exclusive access, blocks all other reads and writes
+- **Write operations** (`SET`, `DELETE`, cleanup) use `Lock` - exclusive access, blocks all other reads and writes
 
 Each client connection runs in its own goroutine, so multiple clients can connect and send commands concurrently.
+
+The background cleanup goroutine is started automatically with `store.New()` and can be stopped gracefully with `store.Close()`.
